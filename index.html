@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claw Party</title>
+<meta name="description" content="A low-poly claw machine game in the browser — move with WASD, drop with Space. 低多邊形風格網頁夾娃娃機。" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='3' y='3' width='26' height='26' rx='6' fill='%23C8925A'/><path d='M16 8v7M11 22l5-7 5 7' stroke='%23F2EDE4' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#E6E2DA; --card:#F7F4EE; --line:#DAD3C7; --ink:#2E2A26; --muted:#7A7268;
+    --cream:#F2EDE4; --wood:#C8925A; --wood-d:#A87543; --green:#6E8F5E; --red:#B5533C;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{min-height:100vh; background:var(--bg); color:var(--ink);
+    font-family:"Inter","Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,-apple-system,"Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  button{font:inherit; color:inherit}
+  .num{font-variant-numeric:tabular-nums}
+  .app{max-width:1180px; margin:0 auto; padding:16px 16px 28px}
+
+  .bar{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:20px; letter-spacing:.2px}
+  .mark{width:28px; height:28px; border-radius:7px; background:var(--wood); display:grid; place-items:center}
+  .actions{display:flex; gap:8px; align-items:center}
+  .seg{display:inline-flex; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:3px}
+  .seg button{border:0; background:transparent; padding:6px 13px; border-radius:999px; font-weight:600; font-size:13px; color:var(--muted); cursor:pointer}
+  .seg button.on{background:var(--ink); color:var(--cream)}
+  .icon{width:36px; height:36px; border-radius:50%; border:1px solid var(--line); background:var(--card); cursor:pointer; display:grid; place-items:center; color:var(--ink)}
+  .icon svg{width:17px; height:17px}
+  .icon:hover, .seg button:not(.on):hover{background:#fff}
+
+  .layout{display:grid; grid-template-columns:minmax(0,1fr) 316px; gap:16px; align-items:start}
+  @media (max-width:960px){ .layout{grid-template-columns:1fr} }
+
+  /* 遊戲畫面與 HUD */
+  .screen{position:relative; border-radius:14px; overflow:hidden; background:var(--bg); border:1px solid var(--line)}
+  canvas#game{display:block; width:100%; height:auto; aspect-ratio:4/3; touch-action:none}
+  .hud{position:absolute; left:12px; top:12px; display:flex; background:rgba(247,244,238,.94); border:1px solid var(--line); border-radius:10px; pointer-events:none}
+  .hud > div{padding:6px 12px; min-width:62px}
+  .hud > div + div{border-left:1px solid var(--line)}
+  .lb{display:block; font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--muted)}
+  .hud b, .timer b{display:block; font-size:18px; font-weight:700; line-height:1.25}
+  .timer{position:absolute; right:12px; top:12px; width:78px; padding:6px 12px 8px; background:rgba(247,244,238,.94); border:1px solid var(--line); border-radius:10px; pointer-events:none}
+  .timer[hidden]{display:none}
+  .timer i{display:block; height:3px; background:var(--line); border-radius:2px; margin-top:4px; overflow:hidden}
+  .timer s{display:block; height:100%; background:var(--ink); width:100%}
+  .timer.low b{color:var(--red)} .timer.low s{background:var(--red)}
+  .toast{position:absolute; left:50%; top:66px; transform:translate(-50%,-6px); max-width:80%; padding:8px 16px; background:var(--card); border:1px solid var(--line);
+         border-left:4px solid var(--ink); border-radius:8px; font-size:14px; font-weight:600; opacity:0; transition:opacity .2s, transform .2s; pointer-events:none; text-align:center}
+  .toast.show{opacity:1; transform:translate(-50%,0)}
+  .toast.good{border-left-color:var(--green)} .toast.bad{border-left-color:var(--red)}
+  .prompt{position:absolute; left:50%; top:34%; transform:translateX(-50%); padding:10px 18px; background:var(--ink); color:var(--cream); border-radius:999px;
+          font-size:15px; font-weight:600; white-space:nowrap; pointer-events:none}
+  .prompt[hidden]{display:none}
+  .prompt.warn{background:var(--red)}
+  .tag{position:absolute; transform:translate(-50%,-100%); padding:5px 10px; background:var(--card); border:1px solid var(--line); border-radius:8px;
+       font-size:12px; line-height:1.4; text-align:center; pointer-events:none; white-space:nowrap}
+  .tag[hidden]{display:none}
+  .tag b{display:block; font-size:13px}
+  .tag.ok{border-bottom:3px solid var(--green)} .tag.no{border-bottom:3px solid var(--red)} .tag.no span{color:var(--red)}
+  .floater{position:absolute; transform:translate(-50%,-50%); font-weight:700; font-size:20px; color:var(--ink); pointer-events:none; white-space:nowrap;
+           animation:rise 1.6s ease-out forwards}
+  .floater.sub{font-size:13px; font-weight:600; color:var(--muted)}
+  .floater.rec{font-size:24px; color:var(--red)}
+  @keyframes rise{0%{opacity:0; margin-top:10px} 15%{opacity:1} 100%{opacity:0; margin-top:-50px}}
+  canvas#game{cursor:grab} canvas#game:active{cursor:grabbing}
+  .viewreset{position:absolute; right:12px; bottom:12px; padding:7px 12px; border:1px solid var(--line); border-radius:8px; background:rgba(247,244,238,.94);
+             font-size:12px; font-weight:600; cursor:pointer}
+  .viewreset[hidden]{display:none}
+  .viewreset:hover{background:#fff}
+  .glerr{position:absolute; inset:0; display:grid; place-items:center; padding:24px; text-align:center; color:var(--muted); font-size:14px; line-height:1.6}
+  .glerr[hidden]{display:none}
+  @media (max-width:560px){ .hud > div{padding:5px 8px; min-width:0} .hud b, .timer b{font-size:15px} .prompt{font-size:13px} .toast{font-size:12px; top:58px} }
+
+  .keys{font-size:13px; color:var(--muted); text-align:center; margin:12px 0 0; line-height:2}
+  kbd{display:inline-block; min-width:22px; padding:0 6px; border-radius:5px; background:var(--card); border:1px solid var(--line); border-bottom-width:2px;
+      color:var(--ink); font:600 11px/18px ui-monospace,Menlo,Consolas,monospace; text-align:center; margin:0 1px}
+
+  /* 側欄 */
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px}
+  .head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; gap:8px}
+  .head .hint{font-size:12px; color:var(--muted); text-align:right}
+  .claws{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+  .claw{all:unset; box-sizing:border-box; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:1px; padding:6px 4px 10px;
+        border-radius:10px; border:1px solid var(--line); background:#fff; text-align:center}
+  .claw img{width:52px; height:52px}
+  .claw .nm{font-weight:600; font-size:13px}
+  .claw .cost{font-weight:700; font-size:16px}
+  .claw .ds{font-size:11px; color:var(--muted); line-height:1.25}
+  .claw.sel{border:2px solid var(--wood); padding:5px 3px 9px; background:var(--cream)}
+  .claw.poor .cost{color:var(--red)}
+  .claw[aria-disabled="true"]{opacity:.5; cursor:not-allowed}
+  .claw:focus-visible{outline:2px solid var(--ink); outline-offset:2px}
+
+  .tabs{display:flex; background:var(--bg); border-radius:999px; padding:3px; margin-bottom:10px}
+  .tab{flex:1; border:0; background:transparent; padding:7px; border-radius:999px; font-weight:600; font-size:13px; color:var(--muted); cursor:pointer}
+  .tab.on{background:#fff; color:var(--ink)}
+  .scroll{max-height:320px; overflow:auto}
+  .inv-row{display:grid; grid-template-columns:42px 1fr auto; gap:10px; align-items:center; padding:7px 2px; border-bottom:1px solid var(--line)}
+  .inv-row:last-child{border-bottom:0}
+  .inv-row img{width:42px; height:42px}
+  .inv-row .nm{font-weight:600; font-size:14px}
+  .inv-row .sub{font-size:12px; color:var(--muted)}
+  .inv-actions{display:flex; gap:6px}
+  .foot{display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-size:13px; color:var(--muted); font-weight:500}
+  .empty{color:var(--muted); text-align:center; font-size:14px; padding:18px 0; margin:0; line-height:1.6}
+  .btn{border:0; border-radius:8px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer; background:var(--ink); color:var(--cream)}
+  .btn.ghost{background:transparent; color:var(--ink); border:1px solid var(--line)}
+  .btn:disabled{opacity:.35; cursor:not-allowed}
+
+  .dex{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+  .dex-item{background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px; text-align:center; position:relative; font-size:12px; line-height:1.55}
+  .dex-item img{width:64px; height:64px}
+  .dex-item.locked img{filter:grayscale(1) opacity(.35)}
+  .dex-item.locked .nm{color:var(--muted)}
+  .dex-item .nm{font-weight:600; font-size:13px}
+  .dex-item .got{position:absolute; top:7px; right:8px; width:7px; height:7px; border-radius:50%; background:var(--green)}
+  .dex-item .meta{color:var(--muted)}
+  .dex-prog{grid-column:1/-1; text-align:center; color:var(--muted); font-size:12px; margin:4px 0 0}
+  .tier{display:inline-block; padding:0 8px; border-radius:99px; font-size:10px; font-weight:600; letter-spacing:.5px; color:#fff; text-transform:uppercase}
+  .t0{background:#8A9A7B} .t1{background:#7F94A6} .t2{background:#B08A5A} .t3{background:#9B5B45}
+  .pips{letter-spacing:2px; color:var(--wood)} .pips i{font-style:normal; color:var(--line)}
+
+  .touch{display:none; margin-top:12px; justify-content:space-between; align-items:center; gap:16px; user-select:none; -webkit-user-select:none}
+  @media (hover:none) and (pointer:coarse){ .touch{display:flex} .keys{display:none} }
+  .dpad{display:grid; grid-template-columns:repeat(3,54px); grid-template-rows:repeat(3,54px); gap:6px}
+  .dpad button{border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--ink); font-size:18px; touch-action:none}
+  .dpad button.on{background:var(--ink); color:var(--cream)}
+  .dpad .u{grid-column:2; grid-row:1} .dpad .l{grid-column:1; grid-row:2} .dpad .r{grid-column:3; grid-row:2} .dpad .d{grid-column:2; grid-row:3}
+  .grab{width:112px; height:112px; border:0; border-radius:50%; background:var(--ink); color:var(--cream); font-size:18px; font-weight:700; touch-action:none; box-shadow:0 5px 0 #15120f}
+  .grab:active{transform:translateY(3px); box-shadow:0 2px 0 #15120f}
+
+  .modal{position:fixed; inset:0; background:rgba(46,42,38,.35); display:grid; place-items:center; z-index:10; padding:16px}
+  .modal[hidden]{display:none}
+  .modal-box{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:28px 24px; max-width:340px; width:100%; text-align:center}
+  .modal-box h3{margin:0 0 4px; font-size:22px; font-weight:700}
+  .modal-box .big{font-size:44px; font-weight:700; margin:10px 0 4px}
+  .modal-box p{color:var(--muted); margin:6px 0; line-height:1.5}
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <span class="mark"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#F2EDE4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v5M4 13l4-6 4 6"/></svg></span>
+      <span data-i18n="title"></span>
+    </div>
+    <div class="actions">
+      <div class="seg" role="group" aria-label="Language"><button data-lang="zh">中文</button><button data-lang="en">EN</button></div>
+      <button class="icon" id="muteBtn" aria-label="Sound"></button>
+      <button class="icon" id="restartBtn" data-i18n-title="restart" aria-label="Restart">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10a6.5 6.5 0 1 0 2-4.7"/><path d="M3.5 3.5v3.2h3.2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section>
+      <div class="screen" id="screen">
+        <canvas id="game" aria-label="Claw machine"></canvas>
+        <div class="hud num">
+          <div><span class="lb" data-i18n="money"></span><b id="hMoney">$0</b></div>
+          <div><span class="lb" data-i18n="score"></span><b id="hScore">0</b></div>
+          <div><span class="lb" data-i18n="best"></span><b id="hBest">0</b></div>
+          <div><span class="lb" data-i18n="left"></span><b id="hLeft">0</b></div>
+        </div>
+        <div class="timer num" id="timer" hidden><span class="lb" data-i18n="time"></span><b id="tNum">20</b><i><s id="tBar"></s></i></div>
+        <div class="toast" id="toast"></div>
+        <div class="prompt" id="prompt" hidden></div>
+        <div class="tag" id="tag" hidden><b id="tagName"></b><span id="tagInfo"></span></div>
+        <div id="floaters"></div>
+        <button class="viewreset" id="viewReset" hidden data-i18n="resetView"></button>
+        <div class="glerr" id="glErr" hidden></div>
+      </div>
+      <p class="keys" data-i18n="keys"></p>
+      <div class="touch">
+        <div class="dpad">
+          <button class="u" data-dir="w" aria-label="Up">&#9650;</button>
+          <button class="l" data-dir="a" aria-label="Left">&#9664;</button>
+          <button class="r" data-dir="d" aria-label="Right">&#9654;</button>
+          <button class="d" data-dir="s" aria-label="Down">&#9660;</button>
+        </div>
+        <button class="grab" id="grabBtn"></button>
+      </div>
+    </section>
+
+    <aside>
+      <div class="card">
+        <div class="head"><span class="lb" data-i18n="claw"></span><span class="hint" data-i18n="clawHint"></span></div>
+        <div class="claws" id="claws"></div>
+      </div>
+      <div class="card">
+        <div class="tabs">
+          <button class="tab on" data-tab="shop" data-i18n="tabBag"></button>
+          <button class="tab" data-tab="dex" data-i18n="tabDex"></button>
+        </div>
+        <div id="panel-shop">
+          <div class="scroll" id="inv"></div>
+          <div class="foot num"><span id="invTotal"></span><button class="btn" id="sellAll" data-i18n="sellAll"></button></div>
+        </div>
+        <div id="panel-dex" hidden><div class="scroll"><div class="dex" id="dex"></div></div></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<div class="modal" id="confirm" hidden>
+  <div class="modal-box">
+    <h3 data-i18n="confirmTitle"></h3>
+    <p data-i18n="confirmRestart"></p>
+    <div style="display:flex; gap:8px; justify-content:center; margin-top:16px">
+      <button class="btn ghost" id="cCancel" data-i18n="cancel" style="padding:10px 20px; font-size:14px"></button>
+      <button class="btn" id="cOk" data-i18n="restart" style="padding:10px 20px; font-size:14px"></button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-box">
+    <h3 data-i18n="overTitle"></h3>
+    <p data-i18n="overSub"></p>
+    <div class="big num" id="mScore">0</div>
+    <p id="mDetail"></p>
+    <button class="btn" id="mRestart" data-i18n="playAgain" style="margin-top:14px; padding:10px 24px; font-size:15px"></button>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ================= 工具 ================= */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+const approach = (v, target, k) => v + (target - v) * Math.min(1, k);
+const $ = (s) => document.querySelector(s);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+
+/* ================= 語言 ================= */
+const I18N = {
+  zh: {
+    docTitle: '夾夾樂園｜網頁夾娃娃機', title: '夾夾樂園', sign: '夾夾樂園', restart: '重新開始',
+    money: '金錢', score: '得分', best: '最高', left: '剩餘', time: '時間',
+    claw: '夾爪', clawHint: '越大越貴，能抓越大的動物', pressKey: '按 {k}',
+    tabBag: '背包', tabDex: '圖鑑', sellOne: '賣 1 個', sellRow: '全賣', sellAll: '全部賣出',
+    bagValue: '背包價值 ${v}', emptyBag: '還沒有獎品<br>抓到的動物會放在這裡，可以賣錢',
+    each: '每個 ${v}', need: '需要{c}', needUp: '需要{c}以上', pts: '{s} 分', progress: '收藏進度 {a} / {b}',
+    keys: '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Space</kbd> 投幣 / 下爪　<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 換夾爪<br>拖曳畫面可 360° 轉視角（WASD 會跟著方向）・滾輪縮放・雙擊重設', resetView: '重設視角',
+    grabCoin: '投幣', grabDrop: '下爪',
+    overTitle: '破產了', overSub: '錢花光了，背包也空了', playAgain: '再玩一局',
+    overBest: '最高紀錄：{b} 分', overRec: '打破最高紀錄！', overStats: '本局抓取 {w} / {p} 次',
+    confirmTitle: '重新開始？', cancel: '取消', confirmRestart: '本局金錢、分數與背包會重置，最高紀錄與圖鑑會保留。',
+    welcome: '按空白鍵投幣開始',
+    noMoneyClaw: '錢不夠用{c}，換小一點的或去賣獎品', noMoney: '錢不夠了，先賣掉獎品吧',
+    coinIn: '已投幣 ${c}，WASD 瞄準，空白鍵下爪', timeUp: '時間到，自動下爪',
+    busy: '這一局進行中，結束後才能換夾爪',
+    whiff: '撲空了，下面什麼都沒有', tooBig: '{n}太大了，需要{c}',
+    perfect: '完美對準，夾起來了', grabbed: '夾到了，撐住…',
+    offCenter: '沒對準，夾爪滑掉了', close: '差一點，再試一次', luck: '（幸運 +{n}%）',
+    slip: '獎品從夾爪滑掉了', luckyDrop: '掉進洞口了，運氣真好',
+    rare: '稀有動物！{n}到手，+{s} 分', newFind: '新收藏：{n}，+{s} 分', got: '抓到{n}，+{s} 分',
+    newRecord: '新紀錄', refill: '全部抓光了，機台補貨中',
+    sold: '賣出{n} ×{k}，獲得 ${v}', soldAll: '賣出 {k} 個獎品，獲得 ${v}',
+    idle: '按空白鍵投幣 ${c}・{n}', idleSwitch: '錢不夠用{n}，按 1 換小夾爪', idleBroke: '錢不夠了，先賣掉獎品',
+    infoLine: '${v}・{s} 分・難度 {st}', infoBig: '太大了，需要{c}', plus: '+{s} 分',
+    noGL: '你的瀏覽器無法啟用 WebGL，3D 畫面無法顯示。請改用最新版 Chrome、Edge、Firefox 或 Safari。',
+  },
+  en: {
+    docTitle: 'Claw Party — Browser Claw Machine', title: 'Claw Party', sign: 'CLAW PARTY', restart: 'Restart',
+    money: 'Cash', score: 'Score', best: 'Best', left: 'Left', time: 'Time',
+    claw: 'Claw', clawHint: 'Bigger = pricier, grabs bigger', pressKey: 'key {k}',
+    tabBag: 'Bag', tabDex: 'Collection', sellOne: 'Sell 1', sellRow: 'All', sellAll: 'Sell all',
+    bagValue: 'Bag value ${v}', emptyBag: 'Nothing here yet<br>Animals you win land here — sell them for cash',
+    each: '${v} each', need: 'Needs {c}', needUp: 'Needs {c}+', pts: '{s} pts', progress: 'Collected {a} / {b}',
+    keys: '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move　<kbd>Space</kbd> Coin / Drop　<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Switch claw<br>Drag to orbit 360° (WASD follows the view) · Scroll to zoom · Double-click to reset', resetView: 'Reset view',
+    grabCoin: 'COIN', grabDrop: 'DROP',
+    overTitle: 'Out of cash', overSub: 'No money and nothing left to sell.', playAgain: 'Play again',
+    overBest: 'Best: {b}', overRec: 'New high score!', overStats: 'Caught {w} of {p} tries',
+    confirmTitle: 'Start over?', cancel: 'Cancel', confirmRestart: 'Cash, score and bag will reset. Your best score and collection are kept.',
+    welcome: 'Press Space to insert a coin',
+    noMoneyClaw: "Can't afford the {c} — pick a smaller one or sell prizes", noMoney: 'Out of cash — sell some prizes first',
+    coinIn: '${c} in. Aim with WASD, Space to drop', timeUp: "Time's up — dropping",
+    busy: 'Finish this round before switching claws',
+    whiff: 'Missed — nothing there', tooBig: 'The {n} is too big — needs the {c}',
+    perfect: 'Perfect aim — got it', grabbed: 'Got a grip, hold on…',
+    offCenter: 'Off-center — the claw slipped', close: 'So close, try again', luck: ' (luck +{n}%)',
+    slip: 'It slipped out of the claw', luckyDrop: 'It fell in the chute — lucky',
+    rare: 'Rare find! The {n} is yours, +{s}', newFind: 'New: {n}, +{s}', got: 'Got the {n}, +{s}',
+    newRecord: 'New record', refill: 'Cleaned out — restocking',
+    sold: 'Sold {n} ×{k} for ${v}', soldAll: 'Sold {k} prizes for ${v}',
+    idle: 'Press SPACE · ${c} · {n}', idleSwitch: "Can't afford the {n} — press 1", idleBroke: 'Out of cash — sell some prizes',
+    infoLine: '${v} · {s} pts · {st}', infoBig: 'Too big — needs the {c}', plus: '+{s} pts',
+    noGL: 'WebGL is not available in this browser, so the 3D view cannot be shown. Please use a recent Chrome, Edge, Firefox or Safari.',
+  },
+};
+let lang = store.get('clawParty.lang', null) || 'en';   // 預設英文，使用者切換後會記住
+function t(key, p = {}) {
+  const s = (I18N[lang][key] ?? I18N.zh[key] ?? key);
+  return s.replace(/\{(\w+)\}/g, (_, k) => (p[k] ?? ''));
+}
+
+/* ================= 遊戲座標（與第一版相同：x 左右、z 前後、h 高度） ================= */
+const FW = 440, FD = 210;
+const TOP_H = 230, PLAY_TIME = 20, START_MONEY = 200, GRAVITY = 900;
+const HOLE = { x1: 0, x2: 118, z1: FD - 104, z2: FD };
+const HOME = { x: (HOLE.x1 + HOLE.x2) / 2, z: (HOLE.z1 + HOLE.z2) / 2 };
+// 換算到 3D 世界座標
+const K = 1 / 40;
+const WX = (x) => (x - FW / 2) * K;
+const WZ = (z) => (z * 1.5 - FD * .75) * K;
+const WY = (h) => h * K;
+
+/* ================= 夾爪與獎品設定 ================= */
+const CLAWS = [
+  { name: { zh: '小夾爪', en: 'Small Claw' },  desc: { zh: '只能抓小型', en: 'Small animals' },  cost: 10, maxR: 24, reach: 18, scale: 0.95, color: '#7F94A6' },
+  { name: { zh: '中夾爪', en: 'Medium Claw' }, desc: { zh: '小型＋中型', en: 'Small + medium' }, cost: 25, maxR: 36, reach: 24, scale: 1.3,  color: '#B8975A' },
+  { name: { zh: '大夾爪', en: 'Large Claw' },  desc: { zh: '全部都能抓', en: 'Grabs anything' }, cost: 50, maxR: 54, reach: 32, scale: 1.8,  color: '#9B5B45' },
+];
+// r：大小　grip：基礎抓取率（越低越難）　value：商店售價　score：得分
+const TYPES = [
+  { id: 'rabbit',   name: { zh: '兔子', en: 'Rabbit' },   tier: 0, r: 18, grip: .90, value: 12,  score: 10,  weight: 10 },
+  { id: 'penguin',  name: { zh: '企鵝', en: 'Penguin' },  tier: 0, r: 19, grip: .85, value: 15,  score: 15,  weight: 9 },
+  { id: 'cat',      name: { zh: '貓',   en: 'Cat' },      tier: 0, r: 21, grip: .80, value: 20,  score: 25,  weight: 8 },
+  { id: 'fox',      name: { zh: '狐狸', en: 'Fox' },      tier: 1, r: 28, grip: .70, value: 45,  score: 50,  weight: 6 },
+  { id: 'bear',     name: { zh: '熊',   en: 'Bear' },     tier: 1, r: 30, grip: .65, value: 50,  score: 60,  weight: 5 },
+  { id: 'deer',     name: { zh: '鹿',   en: 'Deer' },     tier: 1, r: 33, grip: .60, value: 60,  score: 80,  weight: 4 },
+  { id: 'elephant', name: { zh: '大象', en: 'Elephant' }, tier: 2, r: 47, grip: .45, value: 140, score: 200, weight: 3 },
+  { id: 'lion',     name: { zh: '獅子', en: 'Lion' },     tier: 3, r: 50, grip: .30, value: 300, score: 400, weight: 1, rare: true },
+];
+const TYPE = Object.fromEntries(TYPES.map(ty => [ty.id, ty]));
+const TIER_NAMES = { zh: ['小型', '中型', '大型', '稀有'], en: ['Small', 'Medium', 'Large', 'Rare'] };
+const nm = (o) => o.name[lang];
+const needClaw = (ty) => CLAWS.findIndex(c => c.maxR >= ty.r);
+const stars = (ty) => clamp(Math.round((1 - ty.grip) * 7.5), 1, 5);
+const prongLen = (c) => 36 * c.scale;
+const gripH = (p, c) => 1.2 * p.r + 0.5 * prongLen(c);
+const holdOpen = (p, c) => clamp(.25 + .55 * p.r / c.maxR, .25, .8);
+const floorDist = (x1, z1, x2, z2) => Math.hypot(x1 - x2, (z1 - z2) * 1.5);
+const isOverHole = (x, z) => x > HOLE.x1 && x < HOLE.x2 && z > HOLE.z1 && z < HOLE.z2;
+const inHoleZone = (x, z, r) => x - r * .5 < HOLE.x2 + 10 && z + r * .3 > HOLE.z1 - 10;
+
+/* ================= 音效 ================= */
+let actx = null;
+let muted = store.get('clawParty.muted', false);
+function unlockAudio() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; }
+}
+function tone(freq, dur, type = 'square', vol = .05, slide = 0, delay = 0) {
+  if (muted || !actx) return;
+  const t0 = actx.currentTime + delay;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t0);
+  if (slide) o.frequency.linearRampToValueAtTime(Math.max(40, freq + slide), t0 + dur);
+  g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + dur + .02);
+}
+const sfx = {
+  coin()   { tone(988, .08, 'triangle', .06); tone(1319, .16, 'triangle', .06, 0, .08); },
+  drop()   { tone(420, .45, 'triangle', .05, -220); },
+  grab()   { tone(160, .08, 'square', .04); tone(210, .1, 'square', .035, 0, .07); },
+  win()    { [523, 659, 784, 1047].forEach((f, i) => tone(f, .16, 'triangle', .07, 0, i * .09)); },
+  fail()   { tone(300, .2, 'triangle', .05, -110); tone(210, .25, 'triangle', .05, -70, .15); },
+  sell()   { tone(1200, .06, 'triangle', .05); tone(1600, .1, 'triangle', .05, 0, .06); },
+  tick()   { tone(880, .04, 'triangle', .04); },
+  refill() { [392, 523, 659].forEach((f, i) => tone(f, .12, 'triangle', .05, 0, i * .1)); },
+};
+
+/* ================= 遊戲狀態 ================= */
+let game = null;
+let best = store.get('clawParty.best', 0);
+let dex = new Set(store.get('clawParty.dex', []).filter(id => TYPE[id]));   // 忽略舊版本留下的獎品 id
+let selClaw = 0;
+let prizes = [];
+let time = 0;
+let aimTarget = null;
+let uid = 0;
+const keys = { w: false, a: false, s: false, d: false };
+const claw = { x: HOME.x, z: HOME.z, h: TOP_H, open: .25, state: 'idle', type: 0, timer: 0, phaseT: 0,
+               stopH: 0, target: null, carry: null, slip: null, moveDist: 1 };
+
+function makePrize(type, x, z) {
+  return { id: ++uid, type, r: type.r, x, z, h: 0, vh: 0, yaw: rand(-.65, .65), phase: Math.random() * TAU,
+           wiggle: 0, state: 'floor', delay: 0, done: false };
+}
+function pickType(tier) {
+  const list = TYPES.filter(ty => ty.tier === tier);
+  let r = Math.random() * list.reduce((s, ty) => s + ty.weight, 0);
+  for (const ty of list) { r -= ty.weight; if (r <= 0) return ty; }
+  return list[list.length - 1];
+}
+function refill() {
+  const keep = prizes.filter(p => p.state === 'hole');
+  // 每種動物（含獅子）保證至少一隻，其餘隨機補滿
+  const plan = TYPES.slice();
+  for (let i = 0; i < 5; i++) plan.push(pickType(0));
+  for (let i = 0; i < 2; i++) plan.push(pickType(1));
+  plan.push(TYPE.elephant);
+  plan.sort((a, b) => b.r - a.r);
+  const placed = [];
+  for (const ty of plan) {
+    let bestPos = null, bestGap = -Infinity;
+    for (let i = 0; i < 160; i++) {
+      const x = rand(ty.r + 6, FW - ty.r - 6), z = rand(10, FD - 8);
+      if (inHoleZone(x, z, ty.r)) continue;
+      let gap = Infinity;
+      for (const q of placed) gap = Math.min(gap, floorDist(x, z, q.x, q.z) - (q.r + ty.r) * .78);
+      if (gap > bestGap) { bestGap = gap; bestPos = { x, z }; }
+      if (gap >= 0) break;
+    }
+    if (!bestPos) bestPos = { x: FW - ty.r - 10, z: FD / 2 };
+    const p = makePrize(ty, bestPos.x, bestPos.z);
+    p.state = 'fall'; p.h = rand(180, 330); p.delay = rand(0, 1.1);
+    placed.push(p);
+  }
+  prizes = keep.concat(placed);
+  sfx.refill();
+}
+const remaining = () => prizes.filter(p => p.state !== 'hole').length;
+const luckBonus = () => Math.min(.3, game.failStreak * .05);
+const hasInventory = () => TYPES.some(ty => (game.inventory[ty.id] || 0) > 0);
+
+function newGame() {
+  game = { money: START_MONEY, score: 0, plays: 0, wins: 0, failStreak: 0, inventory: {}, newRecord: false, over: false };
+  Object.assign(claw, { x: HOME.x, z: HOME.z, h: TOP_H, open: .25, state: 'idle', type: selClaw, target: null, carry: null, slip: null });
+  prizes = [];
+  refill();
+  $('#modal').hidden = true;
+  updateUI(); renderInventory(); renderDex();
+  showToast(t('welcome'), 'info');
+}
+
+/* ================= 遊戲流程 ================= */
+const modalOpen = () => !$('#modal').hidden || !$('#confirm').hidden;
+function action() {
+  if (modalOpen()) return;
+  if (claw.state === 'idle') insertCoin();
+  else if (claw.state === 'aim') startDrop();
+}
+function insertCoin() {
+  if (claw.state !== 'idle' || game.over) return;
+  const c = CLAWS[selClaw];
+  if (game.money < c.cost) {
+    sfx.fail();
+    showToast(game.money >= CLAWS[0].cost ? t('noMoneyClaw', { c: nm(c) }) : t('noMoney'), 'bad');
+    return;
+  }
+  game.money -= c.cost; game.plays++;
+  claw.type = selClaw; claw.state = 'aim'; claw.timer = PLAY_TIME;
+  pressButton();
+  sfx.coin();
+  showToast(t('coinIn', { c: c.cost }), 'info');
+  updateUI();
+}
+function findTarget() {
+  const c = CLAWS[claw.type];
+  let bestP = null, bd = Infinity;
+  for (const p of prizes) {
+    if (p.state !== 'floor') continue;
+    const d = floorDist(claw.x, claw.z, p.x, p.z);
+    if (d < c.reach + p.r * .45 && d < bd) { bd = d; bestP = p; }
+  }
+  return bestP;
+}
+function startDrop() {
+  if (claw.state !== 'aim') return;
+  const c = CLAWS[claw.type];
+  claw.target = findTarget();
+  claw.stopH = claw.target ? gripH(claw.target, c) : prongLen(c) * .95;
+  claw.state = 'down';
+  pressButton();
+  sfx.drop(); updateUI();
+}
+function resolveGrab() {
+  const c = CLAWS[claw.type], p = claw.target;
+  claw.carry = null; claw.slip = null;
+  if (!p || p.state !== 'floor') { fail(t('whiff')); return; }
+  if (p.r > c.maxR) {
+    p.wiggle = 1;
+    fail(t('tooBig', { n: nm(p.type), c: nm(CLAWS[needClaw(p.type)]) }));
+    return;
+  }
+  const reachLim = c.reach + p.r * .45;
+  const d = floorDist(claw.x, claw.z, p.x, p.z);
+  const align = clamp(1 - d / reachLim, 0, 1);
+  const sizeBonus = 1 + clamp((c.maxR - p.r) / 120, 0, .15);
+  const luck = luckBonus();
+  const chance = clamp(p.type.grip * (.45 + .55 * align) * sizeBonus + luck, .05, .97);
+  if (Math.random() < chance) {
+    p.state = 'carried'; claw.carry = p; sfx.grab();
+    const slipChance = clamp((1 - p.type.grip) * .32 * (1.3 - align * .6) - luck * .5, 0, .5);
+    if (Math.random() < slipChance) claw.slip = { phase: Math.random() < .5 ? 'up' : 'move', at: rand(.25, .85) };
+    showToast(align > .8 ? t('perfect') : t('grabbed'), 'good');
+  } else {
+    p.wiggle = 1;
+    const ang = Math.random() * TAU;
+    const nx = clamp(p.x + Math.cos(ang) * 8, p.r + 4, FW - p.r - 4);
+    const nz = clamp(p.z + Math.sin(ang) * 6, 8, FD - 6);
+    if (!inHoleZone(nx, nz, p.r)) { p.x = nx; p.z = nz; }
+    fail(align < .35 ? t('offCenter') : t('close'));
+  }
+}
+function fail(msg) {
+  game.failStreak++;
+  sfx.fail();
+  showToast(msg + (game.failStreak >= 2 ? t('luck', { n: Math.round(luckBonus() * 100) }) : ''), 'bad');
+  updateUI();
+}
+function doSlip() {
+  const p = claw.carry;
+  if (!p) return;
+  p.state = 'fall'; p.vh = 40; p.wiggle = 1;
+  claw.carry = null; claw.slip = null;
+  game.failStreak++;
+  sfx.fail();
+  showToast(t('slip'), 'bad');
+  updateUI();
+}
+function settle(p) {
+  if (inHoleZone(p.x, p.z, p.r) && !isOverHole(p.x, p.z)) p.x = HOLE.x2 + 12 + p.r * .5;
+  p.x = clamp(p.x, p.r + 4, FW - p.r - 4);
+  p.z = clamp(p.z, 8, FD - 6);
+}
+function award(p) {
+  prizes = prizes.filter(q => q !== p);
+  const ty = p.type;
+  game.inventory[ty.id] = (game.inventory[ty.id] || 0) + 1;
+  game.score += ty.score; game.wins++; game.failStreak = 0;
+  const isNew = !dex.has(ty.id);
+  if (isNew) { dex.add(ty.id); store.set('clawParty.dex', [...dex]); }
+  const at = new THREE.Vector3(WX(HOME.x), 1.6, WZ(HOLE.z1));
+  addFloater(at, t('plus', { s: ty.score }), '');
+  addFloater(at, `${nm(ty)} · $${ty.value}`, 'sub', 26);
+  if (game.score > best) {
+    best = game.score; store.set('clawParty.best', best);
+    if (!game.newRecord) { game.newRecord = true; addFloater(new THREE.Vector3(0, 4.2, 0), t('newRecord'), 'rec'); }
+  }
+  sfx.win();
+  const k = ty.rare ? 'rare' : isNew ? 'newFind' : 'got';
+  showToast(t(k, { n: nm(ty), s: ty.score }), 'good');
+  updateUI(); renderInventory(); renderDex();
+}
+function finishRound() {
+  claw.state = 'idle'; claw.target = null; claw.carry = null; claw.slip = null;
+  if (remaining() === 0) { showToast(t('refill'), 'info'); refill(); }
+  checkGameOver();
+  updateUI();
+}
+function checkGameOver() {
+  if (claw.state !== 'idle' || game.over) return;
+  if (prizes.some(p => p.state === 'hole')) return;
+  if (game.money < CLAWS[0].cost && !hasInventory()) {
+    game.over = true;
+    setTimeout(showGameOver, 700);
+  }
+}
+function showGameOver() {
+  $('#mScore').textContent = game.score;
+  $('#mDetail').innerHTML = `${game.newRecord ? `<b style="color:var(--red)">${t('overRec')}</b>` : t('overBest', { b: best })}<br>${t('overStats', { w: game.wins, p: game.plays })}`;
+  $('#modal').hidden = false;
+}
+function sell(id, n) {
+  const have = game.inventory[id] || 0;
+  n = Math.min(n, have);
+  if (!n) return;
+  const ty = TYPE[id];
+  game.inventory[id] = have - n;
+  game.money += ty.value * n;
+  sfx.sell();
+  showToast(t('sold', { n: nm(ty), k: n, v: ty.value * n }), 'good');
+  updateUI(); renderInventory();
+}
+function selectClaw(i) {
+  if (claw.state !== 'idle') { showToast(t('busy'), 'info'); return; }
+  selClaw = i; claw.type = i;
+  sfx.tick(); updateUI();
+}
+
+/* ================= 更新 ================= */
+function update(dt) {
+  time += dt;
+  const c = CLAWS[claw.type];
+  switch (claw.state) {
+    case 'idle':
+      claw.type = selClaw;
+      claw.open = approach(claw.open, .25, dt * 4);
+      claw.x = approach(claw.x, HOME.x, dt * 5);
+      claw.z = approach(claw.z, HOME.z, dt * 5);
+      claw.h = approach(claw.h, TOP_H, dt * 5);
+      break;
+    case 'aim': {
+      const prevSec = Math.ceil(claw.timer);
+      claw.timer -= dt;
+      const sec = Math.ceil(claw.timer);
+      if (sec !== prevSec && sec <= 5 && sec > 0) sfx.tick();
+      // 依目前鏡頭方向換算：W 永遠是「往畫面裡面」
+      const ix = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), iz = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
+      const cy = Math.cos(view.yaw), sy = Math.sin(view.yaw);
+      let mx = ix * cy + iz * sy, mz = -ix * sy + iz * cy;
+      const ml = Math.hypot(mx, mz);
+      if (ml > 1) { mx /= ml; mz /= ml; }
+      claw.x = clamp(claw.x + mx * 240 * dt, 8, FW - 8);
+      claw.z = clamp(claw.z + mz * 150 * dt, 6, FD - 6);
+      claw.open = approach(claw.open, .25, dt * 4);
+      if (claw.timer <= 0) { showToast(t('timeUp'), 'info'); startDrop(); }
+      break;
+    }
+    case 'down':
+      claw.open = approach(claw.open, 1, dt * 6);
+      claw.h -= 260 * dt;
+      if (claw.h <= claw.stopH) { claw.h = claw.stopH; claw.state = 'close'; claw.phaseT = 0; }
+      break;
+    case 'close': {
+      claw.phaseT += dt;
+      const tg = claw.target;
+      const closeTo = tg && tg.state === 'floor' ? (tg.r <= c.maxR ? holdOpen(tg, c) : .7) : 0;
+      claw.open = approach(claw.open, closeTo, dt * 5);
+      if (claw.phaseT >= .55) { resolveGrab(); claw.state = 'up'; }
+      break;
+    }
+    case 'up':
+      claw.h = Math.min(TOP_H, claw.h + 165 * dt);
+      claw.open = approach(claw.open, claw.carry ? holdOpen(claw.carry, c) : 0, dt * 4);
+      if (claw.carry && claw.slip && claw.slip.phase === 'up') {
+        const prog = (claw.h - claw.stopH) / Math.max(1, TOP_H - claw.stopH);
+        if (prog >= claw.slip.at) doSlip();
+      }
+      if (claw.h >= TOP_H) { claw.state = 'toHole'; claw.moveDist = Math.max(1, Math.hypot(HOME.x - claw.x, HOME.z - claw.z)); }
+      break;
+    case 'toHole': {
+      const dx = HOME.x - claw.x, dz = HOME.z - claw.z, dist = Math.hypot(dx, dz), step = 200 * dt;
+      if (dist <= step) { claw.x = HOME.x; claw.z = HOME.z; claw.state = 'release'; claw.phaseT = 0; }
+      else { claw.x += dx / dist * step; claw.z += dz / dist * step; }
+      if (claw.carry && claw.slip && claw.slip.phase === 'move' && 1 - dist / claw.moveDist >= claw.slip.at) doSlip();
+      break;
+    }
+    case 'release':
+      claw.phaseT += dt;
+      claw.open = approach(claw.open, 1, dt * 5);
+      if (claw.carry && claw.phaseT > .12) { claw.carry.state = 'hole'; claw.carry.vh = 0; claw.carry = null; }
+      if (claw.phaseT > 1.15) finishRound();
+      break;
+  }
+  if (claw.carry) { const p = claw.carry; p.x = claw.x; p.z = claw.z; p.h = claw.h - gripH(p, c); }
+  aimTarget = claw.state === 'aim' ? findTarget() : null;
+
+  for (const p of prizes) {
+    if (p.delay > 0) { p.delay -= dt; continue; }
+    p.wiggle = Math.max(0, p.wiggle - dt * 1.6);
+    if (p.state === 'fall') {
+      p.vh -= GRAVITY * dt; p.h += p.vh * dt;
+      if (p.h <= 0) {
+        p.h = 0;
+        if (isOverHole(p.x, p.z)) { p.state = 'hole'; p.vh = -60; showToast(t('luckyDrop'), 'good'); }
+        else if (p.vh < -180) { p.vh = -p.vh * .28; p.wiggle = .6; }
+        else { p.vh = 0; p.state = 'floor'; settle(p); }
+      }
+    } else if (p.state === 'hole') {
+      p.vh -= GRAVITY * dt; p.h += p.vh * dt;
+      if (p.h < -(2 * p.r + 40)) p.done = true;
+    }
+  }
+  prizes.filter(p => p.done).forEach(award);
+}
+
+/* =====================================================================
+   3D：Low-poly 場景
+   ===================================================================== */
+const COLOR = {
+  bg: '#E6E2DA', cream: '#F2EDE4', wood: '#C8925A', woodD: '#A87543', floor: '#DCD4C6', wall: '#EAE3D7',
+  chute: '#4A443D', ink: '#3A342E', steel: '#8F8A82', steelD: '#5E5850',
+};
+const matCache = new Map();
+function mat(color, extra) {
+  const key = color + (extra ? JSON.stringify(extra) : '');
+  if (!matCache.has(key)) {
+    matCache.set(key, new THREE.MeshStandardMaterial(Object.assign({ color, flatShading: true, roughness: .9, metalness: 0 }, extra || {})));
+  }
+  return matCache.get(key);
+}
+const GEO = {
+  box: new THREE.BoxGeometry(1, 1, 1),
+  ico0: new THREE.IcosahedronGeometry(1, 0),
+  ico1: new THREE.IcosahedronGeometry(1, 1),
+  cyl6: new THREE.CylinderGeometry(1, 1, 1, 6),
+  cyl8: new THREE.CylinderGeometry(1, 1, 1, 8),
+  leg: new THREE.CylinderGeometry(1, .78, 1, 5),
+  cone4: new THREE.ConeGeometry(1, 1, 4),
+  cone5: new THREE.ConeGeometry(1, 1, 5),
+};
+const UP = new THREE.Vector3(0, 1, 0);
+function part(parent, geo, color, pos, scl, rot, extra) {
+  const m = new THREE.Mesh(geo, mat(color, extra));
+  if (pos) m.position.set(pos[0], pos[1], pos[2]);
+  if (scl) m.scale.set(scl[0], scl[1], scl[2]);
+  if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+  m.castShadow = true; m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+// 兩點之間的棍狀零件（尾巴、鹿角、鼻子）
+function seg(parent, a, b, r, color, geo = GEO.cyl6) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+  const d = B.clone().sub(A), len = d.length();
+  const m = part(parent, geo, color, null, [r, len, r]);
+  m.position.copy(A).add(B).multiplyScalar(.5);
+  m.quaternion.setFromUnitVectors(UP, d.normalize());
+  return m;
+}
+function chain(parent, pts, r0, r1, color) {
+  for (let i = 0; i < pts.length - 1; i++) seg(parent, pts[i], pts[i + 1], r0 + (r1 - r0) * i / (pts.length - 2 || 1), color);
+}
+
+/* ---- 動物：同一套玩具語言（相同頭身比、相同眼睛） ---- */
+const EYE = '#2A2622';
+function eyes(head, y = .06, x = .16, z = .335) {
+  for (const s of [-1, 1]) part(head, GEO.ico0, EYE, [s * x, y, z], [.052, .062, .04]);
+}
+function quad(o) {
+  const g = new THREE.Group();
+  const L = o.legH, by = L + .36;
+  part(g, GEO.ico1, o.body, [0, by, 0], [.5, .4, .66]);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(g, GEO.leg, o.leg || o.body, [sx * .26, (L + .14) / 2, sz * .38], [o.legR, L + .14, o.legR]);
+  const head = new THREE.Group();
+  head.position.set(0, by + .38 + (o.headUp || 0), .5);
+  g.add(head);
+  part(head, GEO.ico1, o.headCol || o.body, [0, 0, 0], [.4, .37, .38]);
+  eyes(head);
+  return { g, head, by };
+}
+const ANIMALS = {
+  rabbit() {
+    const body = '#CBC2B3', inner = '#BFA08F';
+    const { g, head, by } = quad({ body, legH: .16, legR: .09 });
+    for (const s of [-1, 1]) {
+      part(head, GEO.box, body, [s * .12, .44, -.04], [.11, .46, .07], [0, 0, -s * .12]);
+      part(head, GEO.box, inner, [s * .12, .44, 0], [.055, .34, .02], [0, 0, -s * .12]);
+    }
+    part(head, GEO.ico0, '#DDD6CA', [0, -.1, .3], [.13, .09, .08]);
+    part(head, GEO.ico0, '#9C7466', [0, -.05, .37], [.04, .03, .03]);
+    part(g, GEO.ico1, '#ECE7DD', [0, by + .05, -.68], [.14, .14, .14]);
+    return g;
+  },
+  penguin() {
+    const dark = '#3B4045', light = '#E8E3D8', beak = '#B98A4E';
+    const g = new THREE.Group();
+    part(g, GEO.ico1, dark, [0, .62, 0], [.46, .58, .42]);
+    part(g, GEO.ico1, light, [0, .58, .19], [.34, .46, .27]);
+    const head = new THREE.Group(); head.position.set(0, 1.22, .04); g.add(head);
+    part(head, GEO.ico1, dark, [0, 0, 0], [.4, .37, .38]);
+    part(head, GEO.ico1, light, [0, -.03, .14], [.29, .26, .25]);
+    eyes(head);
+    part(head, GEO.cone4, beak, [0, -.07, .44], [.07, .2, .07], [Math.PI / 2, Math.PI / 4, 0]);
+    for (const s of [-1, 1]) {
+      part(g, GEO.box, dark, [s * .45, .66, 0], [.07, .42, .2], [0, 0, s * .28]);
+      part(g, GEO.box, beak, [s * .15, .03, .18], [.17, .06, .26]);
+    }
+    return g;
+  },
+  cat() {
+    const body = '#A39A8C';
+    const { g, head, by } = quad({ body, legH: .26, legR: .075 });
+    for (const s of [-1, 1]) part(head, GEO.cone4, body, [s * .2, .32, -.02], [.13, .26, .1], [0, Math.PI / 4, -s * .25]);
+    part(head, GEO.ico0, '#D2CABD', [0, -.1, .3], [.14, .09, .08]);
+    part(head, GEO.ico0, '#8E6A60', [0, -.05, .37], [.04, .03, .03]);
+    chain(g, [[0, by + .1, -.6], [0, by + .12, -.86], [0, by + .32, -1.02], [0, by + .6, -1.05], [.05, by + .84, -.95]], .055, .045, body);
+    return g;
+  },
+  fox() {
+    const body = '#B56A3E', white = '#E6DED0';
+    const { g, head, by } = quad({ body, legH: .24, legR: .07, leg: '#5A4134' });
+    part(g, GEO.ico0, white, [0, by + .02, .52], [.26, .26, .15]);
+    part(head, GEO.cone4, white, [0, -.07, .42], [.13, .3, .12], [Math.PI / 2, Math.PI / 4, 0]);
+    part(head, GEO.ico0, EYE, [0, -.07, .58], [.04, .035, .035]);
+    for (const s of [-1, 1]) part(head, GEO.cone4, body, [s * .2, .35, -.02], [.13, .32, .08], [0, Math.PI / 4, -s * .18]);
+    part(g, GEO.ico1, body, [0, by + .2, -.82], [.19, .19, .44], [.6, 0, 0]);
+    part(g, GEO.ico0, white, [0, by + .45, -1.15], [.14, .14, .14]);
+    return g;
+  },
+  bear() {
+    const body = '#6E5241';
+    const { g, head } = quad({ body, legH: .2, legR: .11 });
+    for (const s of [-1, 1]) part(head, GEO.ico0, body, [s * .26, .3, 0], [.12, .12, .08]);
+    part(head, GEO.ico1, '#A88B70', [0, -.09, .3], [.17, .13, .13]);
+    part(head, GEO.ico0, EYE, [0, -.04, .43], [.06, .045, .04]);
+    return g;
+  },
+  deer() {
+    const body = '#9A7352', bone = '#D9CBB2';
+    const { g, head, by } = quad({ body, legH: .62, legR: .052, headUp: .28 });
+    seg(g, [0, by + .15, .42], [0, by + .58, .52], .12, body);
+    part(head, GEO.ico0, '#7D5C42', [0, -.11, .3], [.15, .12, .14]);
+    part(head, GEO.ico0, EYE, [0, -.08, .43], [.045, .035, .035]);
+    for (const s of [-1, 1]) {
+      part(head, GEO.box, body, [s * .32, .12, -.05], [.2, .08, .05], [0, 0, s * .4]);
+      const b = [s * .12, .3, -.05], m1 = [s * .22, .52, -.09], top = [s * .3, .74, -.12];
+      seg(head, b, m1, .028, bone); seg(head, m1, top, .024, bone);
+      seg(head, m1, [s * .2, .7, .06], .02, bone);
+      seg(head, top, [s * .44, .82, -.1], .018, bone);
+    }
+    part(g, GEO.ico0, '#E6DED0', [0, by + .12, -.68], [.08, .1, .06]);
+    return g;
+  },
+  elephant() {
+    const body = '#8C8D89', ivory = '#E3D9C6';
+    const { g, head } = quad({ body, legH: .3, legR: .14 });
+    for (const s of [-1, 1]) {
+      const ear = part(head, GEO.cyl6, '#858680', [s * .38, .02, -.06], [.34, .035, .38], [Math.PI / 2, 0, 0]);
+      ear.rotation.y = s * .35;
+      part(head, GEO.cone4, ivory, [s * .12, -.22, .34], [.035, .18, .035], [1.9, 0, 0]);
+    }
+    chain(head, [[0, -.12, .3], [0, -.32, .42], [0, -.52, .47], [0, -.68, .52], [0, -.74, .62]], .1, .06, body);
+    return g;
+  },
+  lion() {
+    const body = '#C3A06B', mane = '#8A5E36';
+    const { g, head, by } = quad({ body, legH: .26, legR: .1 });
+    part(head, GEO.ico1, mane, [0, 0, -.12], [.44, .42, .3]);
+    for (let i = 0; i < 10; i++) {
+      const a = i / 10 * TAU;
+      part(head, GEO.ico0, mane, [Math.cos(a) * .4, Math.sin(a) * .38, -.04], [.17, .17, .14]);
+    }
+    part(head, GEO.ico0, '#DCC8A0', [0, -.1, .31], [.16, .12, .11]);
+    part(head, GEO.ico0, '#4A3A30', [0, -.05, .41], [.05, .04, .035]);
+    chain(g, [[0, by + .05, -.6], [0, by - .1, -.85], [0, by - .02, -1.08]], .04, .035, body);
+    part(g, GEO.ico0, mane, [0, by + .02, -1.14], [.1, .1, .1]);
+    return g;
+  },
+};
+// 統一縮放到獎品大小，底部貼地
+function buildAnimal(id, size) {
+  const g = ANIMALS[id]();
+  const box = new THREE.Box3().setFromObject(g), v = new THREE.Vector3();
+  box.getSize(v);
+  const s = size / Math.max(v.x, v.y, v.z * .85);
+  g.scale.setScalar(s);
+  box.setFromObject(g);
+  const c = box.getCenter(new THREE.Vector3());
+  g.position.set(-c.x, -box.min.y, -c.z);
+  const wrap = new THREE.Group(); wrap.add(g);
+  return wrap;
+}
+
+/* ---- 夾爪：機械結構，三片爪會開合 ---- */
+function buildRig(i) {
+  const c = CLAWS[i], s = c.scale * .9, L = prongLen(c) * K;
+  const g = new THREE.Group();
+  part(g, GEO.cyl8, COLOR.steelD, [0, .03 * s, 0], [.34 * s, .06 * s, .34 * s]);
+  part(g, GEO.cyl8, c.color, [0, .22 * s, 0], [.3 * s, .32 * s, .3 * s]);
+  part(g, GEO.box, COLOR.cream, [0, .52 * s, 0], [.34 * s, .28 * s, .34 * s]);
+  part(g, GEO.cyl6, COLOR.steelD, [0, .72 * s, 0], [.07 * s, .14 * s, .07 * s]);
+  const prongs = [];
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + k * TAU / 3;
+    const pivot = new THREE.Group();
+    pivot.position.set(Math.cos(a) * .27 * s, .02 * s, Math.sin(a) * .27 * s);
+    pivot.rotation.y = -a;
+    g.add(pivot);
+    const arm = new THREE.Group(); pivot.add(arm);
+    part(arm, GEO.cyl6, COLOR.steelD, [0, 0, 0], [.05 * s, .16 * s, .05 * s], [Math.PI / 2, 0, 0]);
+    part(arm, GEO.box, COLOR.steel, [0, -.27 * L, 0], [.07 * s, .54 * L, .13 * s]);
+    part(arm, GEO.ico0, COLOR.steelD, [0, -.54 * L, 0], [.06 * s, .06 * s, .06 * s]);
+    const lower = new THREE.Group(); lower.position.set(0, -.54 * L, 0); lower.rotation.z = -.62; arm.add(lower);
+    part(lower, GEO.box, COLOR.steel, [0, -.21 * L, 0], [.065 * s, .42 * L, .12 * s]);
+    part(lower, GEO.box, COLOR.steelD, [-.035 * s, -.42 * L, 0], [.11 * s, .05 * s, .12 * s]);
+    prongs.push(arm);
+  }
+  return { g, prongs, top: .79 * s };
+}
+
+/* ---- 場景 ---- */
+const canvas = $('#game');
+let renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+} catch (e) { renderer = null; }
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(COLOR.bg);
+const camera = new THREE.PerspectiveCamera(39, 4 / 3, .1, 100);
+// 鏡頭繞著機台中心旋轉（拖曳）與縮放（滾輪 / 雙指），有角度限制
+const VIEW = { target: new THREE.Vector3(0, 3.05, .6), yaw: 0, pitch: Math.atan2(7.95, 19), dist: Math.hypot(7.95, 19) };
+const DEFAULT_VIEW = { yaw: VIEW.yaw, pitch: VIEW.pitch, dist: VIEW.dist };
+const view = { ...DEFAULT_VIEW, ty: VIEW.yaw, tp: VIEW.pitch, td: VIEW.dist };
+const VIEW_LIM = { pMin: .12, pMax: .95, dMin: 14, dMax: 27 };
+function placeCamera() {
+  const cp = Math.cos(view.pitch);
+  camera.position.set(
+    VIEW.target.x + view.dist * cp * Math.sin(view.yaw),
+    VIEW.target.y + view.dist * Math.sin(view.pitch),
+    VIEW.target.z + view.dist * cp * Math.cos(view.yaw));
+  camera.lookAt(VIEW.target);
+}
+function updateCamera(dt) {
+  const k = Math.min(1, dt * 10);
+  view.yaw += (view.ty - view.yaw) * k;
+  view.pitch += (view.tp - view.pitch) * k;
+  view.dist += (view.td - view.dist) * k;
+  placeCamera();
+}
+function nudgeView(dyaw, dpitch, zoom) {
+  view.ty += dyaw;
+  if (view.ty > Math.PI) { view.ty -= TAU; view.yaw -= TAU; }
+  if (view.ty < -Math.PI) { view.ty += TAU; view.yaw += TAU; }
+  view.tp = clamp(view.tp + dpitch, VIEW_LIM.pMin, VIEW_LIM.pMax);
+  view.td = clamp(view.td * zoom, VIEW_LIM.dMin, VIEW_LIM.dMax);
+  $('#viewReset').hidden = Math.abs(view.ty - DEFAULT_VIEW.yaw) < .01 && Math.abs(view.tp - DEFAULT_VIEW.pitch) < .01 && Math.abs(view.td - DEFAULT_VIEW.dist) < .05;
+}
+function resetView() { view.ty = DEFAULT_VIEW.yaw; view.tp = DEFAULT_VIEW.pitch; view.td = DEFAULT_VIEW.dist; $('#viewReset').hidden = true; }
+placeCamera();
+
+if (renderer) {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+}
+const sun = new THREE.DirectionalLight(0xfff8ee, 2.6);
+sun.position.set(-4, 14, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11, near: 1, far: 40 });
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.02;
+sun.shadow.radius = 4;
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xc9bfb0, 1.0));
+
+const IX = (FW / 2) * K + .1, IZ = 4.3, INNER_TOP = 8.4;
+const HX = WX(HOLE.x2), HZ = WZ(HOLE.z1);   // 出口邊界
+const machine = new THREE.Group(); scene.add(machine);
+let signMat = null;
+const deck = {};
+function box(w, h, d, color, x, y, z, parent = machine) { return part(parent, GEO.box, color, [x, y, z], [w, h, d]); }
+
+function buildMachine() {
+  const C = COLOR.cream, W = COLOR.wood, WD = COLOR.woodD;
+  // 地板（L 形，留出出口）
+  const sh = new THREE.Shape();
+  [[-IX, -IZ], [IX, -IZ], [IX, IZ], [HX, IZ], [HX, HZ], [-IX, HZ]].forEach(([x, z], i) => (i ? sh.lineTo(x, -z) : sh.moveTo(x, -z)));
+  sh.closePath();
+  const floor = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, { depth: .25, bevelEnabled: false }), mat(COLOR.floor));
+  floor.rotation.x = -Math.PI / 2; floor.position.y = -.25; floor.receiveShadow = true;
+  machine.add(floor);
+  // 出口通道
+  const chH = 3.2;
+  box(IX - (-HX) + .02, chH, .05, COLOR.chute, (-IX + HX) / 2, -chH / 2, HZ + .02);
+  box(.05, chH, IZ - HZ, COLOR.chute, HX - .02, -chH / 2, (HZ + IZ) / 2);
+  box(.05, chH, IZ - HZ, COLOR.chute, -IX + .02, -chH / 2, (HZ + IZ) / 2);
+  box(HX + IX, .05, IZ - HZ, COLOR.chute, (-IX + HX) / 2, -chH, (HZ + IZ) / 2);
+  // 擋板（壓克力）與木框
+  const acrylic = mat('#E9F0F0', { transparent: true, opacity: .28, depthWrite: false, roughness: 1 });
+  const ga = new THREE.Mesh(GEO.box, acrylic); ga.scale.set(HX + IX, .85, .04); ga.position.set((-IX + HX) / 2, .425, HZ); machine.add(ga);
+  const gb = new THREE.Mesh(GEO.box, acrylic); gb.scale.set(.04, .85, IZ - HZ); gb.position.set(HX, .425, (HZ + IZ) / 2); machine.add(gb);
+  box(HX + IX, .07, .09, WD, (-IX + HX) / 2, .87, HZ);
+  box(.09, .07, IZ - HZ, WD, HX, .87, (HZ + IZ) / 2);
+  box(.09, .9, .09, WD, HX, .45, HZ);
+  // 背面與兩側也是玻璃，四面都看得到
+  const sideGlass = mat('#FFFFFF', { transparent: true, opacity: .06, depthWrite: false, roughness: 1, side: THREE.DoubleSide });
+  const gBack = new THREE.Mesh(new THREE.PlaneGeometry(IX * 2, INNER_TOP), sideGlass); gBack.position.set(0, INNER_TOP / 2, -IZ - .02); machine.add(gBack);
+  for (const s of [-1, 1]) {
+    const gs = new THREE.Mesh(new THREE.PlaneGeometry(IZ * 2, INNER_TOP), sideGlass);
+    gs.rotation.y = Math.PI / 2; gs.position.set(s * (IX + .02), INNER_TOP / 2, 0); machine.add(gs);
+  }
+  // 下座
+  box(IX * 2 + 1.2, 3.4, .4, C, 0, -1.7, IZ + .2);
+  for (const s of [-1, 1]) box(.6, 3.4, IZ * 2 + .8, C, s * (IX + .3), -1.7, 0);
+  box(IX * 2 + 1.2, 3.4, .4, C, 0, -1.7, -IZ - .2);
+  for (const zs of [-1, 1]) {
+    box(IX * 2 + 1.3, .22, .5, W, 0, .02, zs * (IZ + .25));
+    box(IX * 2 + 1.3, .2, .5, W, 0, -3.3, zs * (IZ + .25));
+  }
+  for (const s of [-1, 1]) {
+    box(.5, .22, IZ * 2 + 1, W, s * (IX + .35), .02, 0);
+    box(.5, .2, IZ * 2 + 1, W, s * (IX + .35), -3.3, 0);
+  }
+  // 取物口
+  box(3.0, 1.2, .1, COLOR.chute, (-IX + HX) / 2, -1.9, IZ + .42);
+  box(3.2, .12, .14, W, (-IX + HX) / 2, -1.24, IZ + .43);
+  box(3.2, .12, .14, W, (-IX + HX) / 2, -2.56, IZ + .43);
+  // 四根木柱
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(.5, INNER_TOP + 3.6, .5, W, sx * (IX + .35), (INNER_TOP + 3.6) / 2 - 3.4, sz * (IZ + .25));
+  // 頂箱與招牌
+  box(IX * 2 + 1.2, 1.7, IZ * 2 + 1, C, 0, INNER_TOP + .85, 0);
+  box(IX * 2 + 1.3, .16, IZ * 2 + 1.1, W, 0, INNER_TOP + .04, 0);
+  box(IX * 2 + 1.3, .14, IZ * 2 + 1.1, W, 0, INNER_TOP + 1.72, 0);
+  const signCv = document.createElement('canvas'); signCv.width = 1024; signCv.height = 128;
+  const signTex = new THREE.CanvasTexture(signCv); signTex.colorSpace = THREE.SRGBColorSpace;
+  signMat = new THREE.MeshStandardMaterial({ map: signTex, roughness: .95, metalness: 0 });
+  signMat.userData.cv = signCv;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(IX * 2 - .8, 1.25), signMat);
+  sign.position.set(0, INNER_TOP + .88, IZ + .51); machine.add(sign);
+  const signBack = new THREE.Mesh(sign.geometry, signMat);
+  signBack.position.set(0, INNER_TOP + .88, -IZ - .51); signBack.rotation.y = Math.PI; machine.add(signBack);
+  drawSign();
+  // 玻璃（幾乎看不見，不反光）
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(IX * 2, INNER_TOP), mat('#FFFFFF', { transparent: true, opacity: .05, depthWrite: false, roughness: 1 }));
+  glass.position.set(0, INNER_TOP / 2, IZ + .02); machine.add(glass);
+  // 天車軌道
+  for (const s of [-1, 1]) box(.16, .16, IZ * 2, COLOR.steelD, s * (IX - .12), INNER_TOP - .45, 0);
+  deck.bridge = new THREE.Group(); machine.add(deck.bridge);
+  box(IX * 2 - .2, .14, .26, COLOR.steel, 0, INNER_TOP - .58, 0, deck.bridge);
+  deck.trolley = new THREE.Group(); machine.add(deck.trolley);
+  box(.5, .26, .5, COLOR.cream, 0, 0, 0, deck.trolley);
+  box(.54, .06, .54, COLOR.woodD, 0, -.15, 0, deck.trolley);
+  deck.cable = part(machine, GEO.cyl6, COLOR.steelD, null, [.025, 1, .025]);
+  // 控制台
+  const panel = new THREE.Group(); panel.position.set(0, -.12, IZ + 1.05); panel.rotation.x = .12; machine.add(panel);
+  box(IX * 2 + 1.3, .34, 1.4, W, 0, 0, 0, panel);
+  box(IX * 2 + 1.1, .03, 1.2, '#D6A46D', 0, .18, 0, panel);
+  const joy = new THREE.Group(); joy.position.set(2.5, .18, 0); panel.add(joy);
+  part(joy, GEO.cyl8, COLOR.ink, [0, .03, 0], [.3, .06, .3]);
+  deck.stick = new THREE.Group(); joy.add(deck.stick);
+  part(deck.stick, GEO.cyl6, COLOR.steel, [0, .3, 0], [.045, .6, .045]);
+  part(deck.stick, GEO.ico1, '#A6543F', [0, .64, 0], [.16, .16, .16]);
+  part(panel, GEO.cyl8, COLOR.ink, [4.35, .2, 0], [.3, .05, .3]);
+  deck.btn = part(panel, GEO.cyl8, '#C2A15A', [4.35, .27, 0], [.24, .12, .24]);
+  part(panel, GEO.box, COLOR.ink, [.5, .2, 0], [.7, .03, .36]);
+  part(panel, GEO.box, '#1E1B18', [.5, .22, 0], [.06, .02, .24]);
+  // 目標光圈（瞄準時顯示）
+  deck.ring = new THREE.Mesh(new THREE.RingGeometry(.86, 1, 16), mat('#6E8F5E', { transparent: true, opacity: .85, side: THREE.DoubleSide }));
+  deck.ring.rotation.x = -Math.PI / 2; deck.ring.visible = false; machine.add(deck.ring);
+  // 機台外殼不投影（否則頂箱會把整個內部遮暗），只有會動的零件投影
+  machine.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  [deck.bridge, deck.trolley, deck.stick].forEach(g => g.traverse(o => { if (o.isMesh) o.castShadow = true; }));
+  deck.cable.castShadow = true;
+}
+function drawSign() {
+  if (!signMat) return;
+  const cv = signMat.userData.cv, g = cv.getContext('2d');
+  g.fillStyle = COLOR.cream; g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = COLOR.ink; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = `700 ${lang === 'zh' ? 76 : 70}px "Inter","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif`;
+  if (lang === 'en' && 'letterSpacing' in g) g.letterSpacing = '10px';
+  g.fillText(t('sign'), cv.width / 2, cv.height / 2 + 4);
+  if ('letterSpacing' in g) g.letterSpacing = '0px';
+  g.fillStyle = COLOR.wood; g.fillRect(70, cv.height / 2 - 2, 70, 4); g.fillRect(cv.width - 140, cv.height / 2 - 2, 70, 4);
+  signMat.map.needsUpdate = true;
+}
+let buttonPress = 0;
+function pressButton() { buttonPress = 1; }
+
+const rigs = CLAWS.map((c, i) => { const r = buildRig(i); machine.add(r.g); return r; });
+const prizeMeshes = new Map();
+function syncScene(dt) {
+  // 夾爪
+  rigs.forEach((r, i) => { r.g.visible = i === claw.type; });
+  const rig = rigs[claw.type];
+  const hx = WX(claw.x), hz = WZ(claw.z), hy = WY(claw.h);
+  rig.g.position.set(hx, hy, hz);
+  rig.g.rotation.z = claw.carry ? Math.sin(time * 4) * .03 : 0;
+  const theta = -.08 + claw.open * .78;
+  for (const p of rig.prongs) p.rotation.z = theta;
+  deck.bridge.position.z = hz;
+  const ty = INNER_TOP - .78;
+  deck.trolley.position.set(hx, ty, hz);
+  const top = new THREE.Vector3(hx, ty - .17, hz), bot = new THREE.Vector3(hx, hy + rig.top, hz);
+  const len = Math.max(.01, top.y - bot.y);
+  deck.cable.position.set(hx, (top.y + bot.y) / 2, hz);
+  deck.cable.scale.set(.025, len, .025);
+  // 搖桿、按鈕
+  const aim = claw.state === 'aim';
+  const kx = aim ? (keys.d ? 1 : 0) - (keys.a ? 1 : 0) : 0, kz = aim ? (keys.s ? 1 : 0) - (keys.w ? 1 : 0) : 0;
+  const ix = kx * Math.cos(view.yaw) + kz * Math.sin(view.yaw), iz = -kx * Math.sin(view.yaw) + kz * Math.cos(view.yaw);
+  deck.stick.rotation.x = approach(deck.stick.rotation.x, iz * .35, dt * 14);
+  deck.stick.rotation.z = approach(deck.stick.rotation.z, -ix * .35, dt * 14);
+  buttonPress = Math.max(0, buttonPress - dt * 5);
+  deck.btn.position.y = .27 - .06 * Math.sin(Math.min(1, buttonPress) * Math.PI);
+  // 目標光圈
+  if (aim && aimTarget) {
+    const fits = aimTarget.r <= CLAWS[claw.type].maxR;
+    deck.ring.visible = true;
+    deck.ring.material.color.set(fits ? '#6E8F5E' : '#B5533C');
+    const s = aimTarget.r * K * 1.15 + .12;
+    deck.ring.scale.set(s, s, s);
+    deck.ring.position.set(WX(aimTarget.x), .015, WZ(aimTarget.z));
+  } else deck.ring.visible = false;
+  // 獎品
+  const alive = new Set();
+  for (const p of prizes) {
+    alive.add(p.id);
+    let m = prizeMeshes.get(p.id);
+    if (!m) { m = buildAnimal(p.type.id, 2 * p.r * K * 1.05); machine.add(m); prizeMeshes.set(p.id, m); }
+    m.visible = p.delay <= 0;
+    m.position.set(WX(p.x), WY(p.h), WZ(p.z));
+    m.rotation.y = p.yaw;
+    let rz = 0;
+    if (p.wiggle > 0) rz += Math.sin(time * 26) * .16 * p.wiggle;
+    if (p.state === 'carried') rz += Math.sin(time * 4 + p.phase) * .06;
+    m.rotation.z = rz;
+  }
+  for (const [id, m] of prizeMeshes) if (!alive.has(id)) { machine.remove(m); prizeMeshes.delete(id); }
+}
+
+/* ================= 介面（DOM） ================= */
+const el = {
+  money: $('#hMoney'), score: $('#hScore'), best: $('#hBest'), left: $('#hLeft'),
+  timer: $('#timer'), tNum: $('#tNum'), tBar: $('#tBar'), toast: $('#toast'), prompt: $('#prompt'),
+  tag: $('#tag'), tagName: $('#tagName'), tagInfo: $('#tagInfo'), floaters: $('#floaters'), screen: $('#screen'),
+  claws: $('#claws'), inv: $('#inv'), invTotal: $('#invTotal'), sellAll: $('#sellAll'), dex: $('#dex'), grab: $('#grabBtn'),
+};
+let toastTimer = 0;
+function showToast(text, type = 'info') {
+  el.toast.textContent = text;
+  el.toast.className = `toast show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.toast.classList.remove('show'), 2600);
+}
+const _v = new THREE.Vector3();
+function toScreen(v) {
+  _v.copy(v).project(camera);
+  return [(_v.x + 1) / 2 * el.screen.clientWidth, (1 - _v.y) / 2 * el.screen.clientHeight];
+}
+function addFloater(pos, text, cls = '', dy = 0) {
+  const [x, y] = toScreen(pos);
+  const d = document.createElement('div');
+  d.className = 'floater ' + cls; d.textContent = text;
+  d.style.left = x + 'px'; d.style.top = (y + dy) + 'px';
+  d.addEventListener('animationend', () => d.remove());
+  el.floaters.appendChild(d);
+}
+
+/* 縮圖：用另一個小型 renderer 預先算好 */
+const icons = {}, clawIcons = [];
+function makeThumbs() {
+  let r2;
+  try { r2 = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); } catch (e) { return; }
+  r2.setSize(144, 144); r2.setPixelRatio(1); r2.outputColorSpace = THREE.SRGBColorSpace;
+  const s2 = new THREE.Scene();
+  const dl = new THREE.DirectionalLight(0xffffff, 2.2); dl.position.set(-3, 6, 6); s2.add(dl);
+  s2.add(new THREE.HemisphereLight(0xffffff, 0xc9bfb0, .9));
+  const cam = new THREE.PerspectiveCamera(28, 1, .1, 50);
+  const shot = (obj) => {
+    s2.add(obj);
+    const b = new THREE.Box3().setFromObject(obj), c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3());
+    const d = Math.max(sz.x, sz.y) * 1.25 / (2 * Math.tan(14 * Math.PI / 180)) + sz.z / 2;
+    cam.position.set(c.x + d * .25, c.y + d * .22, c.z + d);
+    cam.lookAt(c);
+    r2.render(s2, cam);
+    s2.remove(obj);
+    return r2.domElement.toDataURL();
+  };
+  for (const ty of TYPES) { const m = buildAnimal(ty.id, 2); m.rotation.y = .5; icons[ty.id] = shot(m); }
+  CLAWS.forEach((c, i) => { const r = buildRig(i); r.prongs.forEach(p => { p.rotation.z = .35; }); clawIcons[i] = shot(r.g); });
+  r2.dispose(); r2.forceContextLoss();
+}
+
+const shown = {};
+function setText(node, key, val) { if (shown[key] !== val) { shown[key] = val; node.textContent = val; } }
+function renderClaws() {
+  el.claws.innerHTML = CLAWS.map((c, i) => `
+    <button class="claw" data-claw="${i}" title="${t('pressKey', { k: i + 1 })}">
+      ${clawIcons[i] ? `<img src="${clawIcons[i]}" alt="">` : ''}
+      <span class="nm">${nm(c)}</span>
+      <span class="cost num">$${c.cost}</span>
+      <span class="ds">${c.desc[lang]}</span>
+    </button>`).join('');
+}
+function updateUI() {
+  if (!game) return;
+  setText(el.money, 'm', '$' + game.money);
+  setText(el.score, 's', String(game.score));
+  setText(el.best, 'b', String(best));
+  setText(el.left, 'l', String(remaining()));
+  const idle = claw.state === 'idle', aim = claw.state === 'aim';
+  [...el.claws.children].forEach((b, i) => {
+    b.classList.toggle('sel', i === selClaw);
+    b.classList.toggle('poor', game.money < CLAWS[i].cost);
+    b.setAttribute('aria-disabled', idle ? 'false' : 'true');
+  });
+  setText(el.grab, 'g', idle ? t('grabCoin') : aim ? t('grabDrop') : '…');
+  // 計時
+  el.timer.hidden = !aim;
+  if (aim) {
+    const s = Math.max(0, Math.ceil(claw.timer));
+    setText(el.tNum, 't', String(s));
+    el.tBar.style.width = clamp(claw.timer / PLAY_TIME, 0, 1) * 100 + '%';
+    el.timer.classList.toggle('low', s <= 5);
+  }
+  // 待機提示
+  const showPrompt = idle && !game.over && !modalOpen();
+  el.prompt.hidden = !showPrompt;
+  if (showPrompt) {
+    const sc = CLAWS[selClaw], can = game.money >= sc.cost;
+    setText(el.prompt, 'p', can ? t('idle', { c: sc.cost, n: nm(sc) }) : game.money >= CLAWS[0].cost ? t('idleSwitch', { n: nm(sc) }) : t('idleBroke'));
+    el.prompt.classList.toggle('warn', !can);
+  }
+}
+function updateTag() {
+  if (claw.state !== 'aim' || !aimTarget) { el.tag.hidden = true; return; }
+  const tg = aimTarget, c = CLAWS[claw.type], fits = tg.r <= c.maxR;
+  const [x, y] = toScreen(new THREE.Vector3(WX(tg.x), WY(tg.h) + 2 * tg.r * K * 1.15 + .25, WZ(tg.z)));
+  el.tag.hidden = false;
+  el.tag.className = 'tag ' + (fits ? 'ok' : 'no');
+  el.tag.style.left = clamp(x, 70, el.screen.clientWidth - 70) + 'px';
+  el.tag.style.top = Math.max(70, y) + 'px';
+  setText(el.tagName, 'tn', nm(tg.type));
+  setText(el.tagInfo, 'ti', fits ? t('infoLine', { v: tg.type.value, s: tg.type.score, st: stars(tg.type) + '/5' }) : t('infoBig', { c: nm(CLAWS[needClaw(tg.type)]) }));
+}
+function renderInventory() {
+  const items = TYPES.filter(ty => (game.inventory[ty.id] || 0) > 0);
+  let total = 0;
+  if (!items.length) {
+    el.inv.innerHTML = `<p class="empty">${t('emptyBag')}</p>`;
+  } else {
+    el.inv.innerHTML = items.map(ty => {
+      const n = game.inventory[ty.id]; total += n * ty.value;
+      return `<div class="inv-row">
+        ${icons[ty.id] ? `<img src="${icons[ty.id]}" alt="">` : '<span></span>'}
+        <div><div class="nm">${nm(ty)} <span class="num" style="color:var(--muted)">×${n}</span></div>
+             <div class="sub num">${t('each', { v: ty.value })}</div></div>
+        <div class="inv-actions">
+          <button class="btn" data-sell="${ty.id}" data-n="1">${t('sellOne')}</button>
+          ${n > 1 ? `<button class="btn ghost" data-sell="${ty.id}" data-n="${n}">${t('sellRow')}</button>` : ''}
+        </div></div>`;
+    }).join('');
+  }
+  el.invTotal.textContent = t('bagValue', { v: total });
+  el.sellAll.disabled = !items.length;
+}
+function renderDex() {
+  el.dex.innerHTML = TYPES.map(ty => {
+    const got = dex.has(ty.id), need = needClaw(ty), st = stars(ty);
+    return `<div class="dex-item ${got ? '' : 'locked'}">
+      ${got ? '<span class="got"></span>' : ''}
+      ${icons[ty.id] ? `<img src="${icons[ty.id]}" alt="">` : ''}
+      <div class="nm">${nm(ty)}</div>
+      <span class="tier t${ty.tier}">${TIER_NAMES[lang][ty.tier]}</span>
+      <div class="meta">${t(need < 2 ? 'needUp' : 'need', { c: nm(CLAWS[need]) })}</div>
+      <div class="pips">${'■'.repeat(st)}<i>${'■'.repeat(5 - st)}</i></div>
+      <div class="num"><b>$${ty.value}</b> · ${t('pts', { s: ty.score })}</div>
+    </div>`;
+  }).join('') + `<p class="dex-prog num">${t('progress', { a: dex.size, b: TYPES.length })}</p>`;
+}
+function applyLang() {
+  document.documentElement.lang = lang === 'zh' ? 'zh-Hant' : 'en';
+  document.title = t('docTitle');
+  document.querySelectorAll('[data-i18n]').forEach(n => { n.innerHTML = t(n.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-title]').forEach(n => { n.title = t(n.dataset.i18nTitle); });
+  document.querySelectorAll('[data-lang]').forEach(b => b.classList.toggle('on', b.dataset.lang === lang));
+  for (const k in shown) delete shown[k];
+  renderClaws();
+  drawSign();
+  if (game) { updateUI(); renderInventory(); renderDex(); }
+}
+function setLang(l) {
+  if (l === lang || !I18N[l]) return;
+  lang = l; store.set('clawParty.lang', l);
+  el.toast.classList.remove('show');
+  applyLang();
+}
+const SPEAKER = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8v4h3l4 3V5L6 8z"/>';
+function syncMute() {
+  $('#muteBtn').innerHTML = SPEAKER + (muted ? '<path d="M13.5 8l4 4M17.5 8l-4 4"/></svg>' : '<path d="M13.5 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10"/></svg>');
+}
+
+/* ================= 事件 ================= */
+el.claws.addEventListener('click', e => { const b = e.target.closest('[data-claw]'); if (b) { unlockAudio(); selectClaw(+b.dataset.claw); } });
+el.inv.addEventListener('click', e => { const b = e.target.closest('[data-sell]'); if (b) { unlockAudio(); sell(b.dataset.sell, +b.dataset.n); } });
+el.sellAll.addEventListener('click', () => {
+  unlockAudio();
+  let sum = 0, cnt = 0;
+  for (const ty of TYPES) { const n = game.inventory[ty.id] || 0; sum += n * ty.value; cnt += n; game.inventory[ty.id] = 0; }
+  if (!cnt) return;
+  game.money += sum; sfx.sell();
+  showToast(t('soldAll', { k: cnt, v: sum }), 'good');
+  updateUI(); renderInventory();
+});
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === tab));
+  $('#panel-shop').hidden = tab.dataset.tab !== 'shop';
+  $('#panel-dex').hidden = tab.dataset.tab !== 'dex';
+}));
+document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => setLang(b.dataset.lang)));
+$('#muteBtn').addEventListener('click', () => { unlockAudio(); muted = !muted; store.set('clawParty.muted', muted); syncMute(); });
+$('#restartBtn').addEventListener('click', () => {
+  unlockAudio();
+  if (game.over) { newGame(); return; }
+  $('#confirm').hidden = false;
+  $('#cOk').focus();
+});
+$('#cCancel').addEventListener('click', () => { $('#confirm').hidden = true; });
+$('#cOk').addEventListener('click', () => { $('#confirm').hidden = true; newGame(); });
+$('#confirm').addEventListener('click', e => { if (e.target.id === 'confirm') $('#confirm').hidden = true; });
+$('#mRestart').addEventListener('click', () => { unlockAudio(); newGame(); });
+document.addEventListener('click', e => { const b = e.target.closest('button'); if (b) b.blur(); });
+
+const KEYMAP = { KeyW: 'w', ArrowUp: 'w', KeyA: 'a', ArrowLeft: 'a', KeyS: 's', ArrowDown: 's', KeyD: 'd', ArrowRight: 'd' };
+window.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('input,textarea')) return;
+  unlockAudio();
+  if (!$('#confirm').hidden) {
+    if (e.code === 'Escape') $('#confirm').hidden = true;
+    if (e.code === 'Enter') { e.preventDefault(); $('#confirm').hidden = true; newGame(); }
+    if (e.code === 'Space') e.preventDefault();
+    return;
+  }
+  if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); return; }
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) action(); return; }
+  const m = /^(Digit|Numpad)([123])$/.exec(e.code);
+  if (m) selectClaw(+m[2] - 1);
+});
+window.addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; if (e.code === 'Space') e.preventDefault(); });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+document.querySelectorAll('[data-dir]').forEach(b => {
+  const k = b.dataset.dir;
+  const on = e => { e.preventDefault(); unlockAudio(); keys[k] = true; b.classList.add('on'); };
+  const off = () => { keys[k] = false; b.classList.remove('on'); };
+  b.addEventListener('pointerdown', on);
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, off));
+  b.addEventListener('contextmenu', e => e.preventDefault());
+});
+el.grab.addEventListener('pointerdown', e => { e.preventDefault(); unlockAudio(); action(); });
+
+// 拖曳旋轉、滾輪縮放、雙指縮放、雙擊重設
+const pointers = new Map();
+let pinchDist = 0;
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinchDist = Math.hypot(a.x - b.x, a.y - b.y); }
+});
+canvas.addEventListener('pointermove', e => {
+  const prev = pointers.get(e.pointerId);
+  if (!prev) return;
+  const cur = { x: e.clientX, y: e.clientY };
+  pointers.set(e.pointerId, cur);
+  if (pointers.size === 1) {
+    nudgeView(-(cur.x - prev.x) * .006, (cur.y - prev.y) * .005, 1);
+  } else if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinchDist > 0) nudgeView(0, 0, pinchDist / d);
+    pinchDist = d;
+  }
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => canvas.addEventListener(ev, e => { pointers.delete(e.pointerId); pinchDist = 0; }));
+canvas.addEventListener('wheel', e => { e.preventDefault(); nudgeView(0, 0, Math.exp(e.deltaY * .0012)); }, { passive: false });
+canvas.addEventListener('dblclick', resetView);
+$('#viewReset').addEventListener('click', resetView);
+
+function resize() {
+  if (!renderer) return;
+  const w = el.screen.clientWidth;
+  renderer.setSize(w, Math.round(w * .75), false);
+}
+window.addEventListener('resize', resize);
+
+/* ================= 主迴圈 ================= */
+let last = performance.now(), uiTimer = 0;
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  update(dt);
+  updateCamera(dt);
+  syncScene(dt);
+  updateTag();
+  renderer.render(scene, camera);
+  uiTimer += dt;
+  if (uiTimer > .1) { uiTimer = 0; updateUI(); }
+  requestAnimationFrame(frame);
+}
+
+buildMachine();
+syncMute();
+if (renderer) makeThumbs();
+applyLang();
+if (!renderer) {
+  const e = $('#glErr'); e.hidden = false; e.textContent = t('noGL');
+} else {
+  resize();
+  newGame();
+  requestAnimationFrame(frame);
+}
+window.__claw = { claw, camera, get prizes() { return prizes; }, get game() { return game; } };
+</script>
+</body>
+</html>
